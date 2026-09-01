@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { broker } from './broker.js';
+import { startListener, stopListener, listListeners } from './listeners.js';
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({ name: 'mcp-agent-chat', version: '1.0.0' });
@@ -196,6 +197,67 @@ export function createMcpServer(): McpServer {
       ? 'Sender was not blocking — reply queued in their inbox.'
       : 'Sender was waiting — unblocked immediately.';
     return { content: [{ type: 'text' as const, text: `Reply sent. ${detail}` }] };
+  });
+
+  server.registerTool('start_listener', {
+    description:
+      'Start an autonomous AI listener for a session. ' +
+      'The broker will wait for incoming messages and automatically reply using Claude, ' +
+      'in an endless loop — no client session needs to stay open. ' +
+      'Requires ANTHROPIC_API_KEY to be set on the broker server.',
+    inputSchema: {
+      session_name: z.string().describe('Name to register for this listener session'),
+      instructions: z.string().describe(
+        'System prompt that defines how this listener should behave and reply to messages',
+      ),
+      model: z.string().optional().describe('Claude model to use. Default: claude-opus-5'),
+    },
+  }, async ({ session_name, instructions, model }) => {
+    try {
+      await startListener(session_name, instructions, model);
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Autonomous listener started for session "${session_name}". ` +
+                `It will now receive messages and reply automatically using Claude.`,
+        }],
+      };
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: (err as Error).message }],
+      };
+    }
+  });
+
+  server.registerTool('stop_listener', {
+    description: 'Stop an autonomous listener that was started with start_listener.',
+    inputSchema: {
+      session_name: z.string().describe('The listener session name to stop'),
+    },
+  }, async ({ session_name }) => {
+    const stopped = stopListener(session_name);
+    if (!stopped) {
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: `No active listener found for "${session_name}".` }],
+      };
+    }
+    return { content: [{ type: 'text' as const, text: `Listener "${session_name}" stopped.` }] };
+  });
+
+  server.registerTool('list_listeners', {
+    description: 'List all currently running autonomous listeners.',
+    inputSchema: {},
+  }, async () => {
+    const listeners = listListeners();
+    if (listeners.length === 0) {
+      return { content: [{ type: 'text' as const, text: 'No active listeners.' }] };
+    }
+    const text = listeners
+      .map((l) => `• ${l.sessionName} — model: ${l.model}, messages handled: ${l.messagesHandled}`)
+      .join('\n');
+    return { content: [{ type: 'text' as const, text: `Active listeners:\n${text}` }] };
   });
 
   return server;
