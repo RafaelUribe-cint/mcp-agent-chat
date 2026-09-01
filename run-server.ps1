@@ -1,6 +1,6 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # run-server.ps1
-# Clones (or updates) mcp-agent-chat, builds it, then starts the server-app.
+# Clones (or updates) mcp-agent-chat and starts the server-app.
 # The broker runs on Railway — no local broker process needed.
 #
 # Requirements: git, node >= 18, npm, claude CLI in PATH
@@ -24,14 +24,13 @@ if (Test-Path "$INSTALL_DIR\.git") {
     git clone $REPO_URL $INSTALL_DIR
 }
 
-# ── 2. Install dependencies and build ─────────────────────────────────────────
+# ── 2. Install dependencies (dev deps included — tsx runs the app directly) ───
 Write-Host "[setup] Installing dependencies..."
-npm --prefix $INSTALL_DIR install --silent
+npm --prefix $INSTALL_DIR install
 
-Write-Host "[setup] Building..."
-npm --prefix $INSTALL_DIR run build
+# ── 3. Start server-app via tsx (no build/tsc required) ──────────────────────
+$TSX = "$INSTALL_DIR\node_modules\.bin\tsx"
 
-# ── 3. Start server-app ───────────────────────────────────────────────────────
 $serverAppCmd = @"
 `$env:BROKER_URL         = '$BROKER_URL'
 `$env:API_KEY            = '$API_KEY'
@@ -39,9 +38,9 @@ $serverAppCmd = @"
 `$env:PROJECT_DIR        = '$PROJECT_DIR'
 `$env:STATUS_INTERVAL_MS = '$STATUS_INTERVAL_MS'
 Write-Host '[server-app] Connecting to $BROKER_URL'
-Write-Host '[server-app] Session: $SESSION_NAME'
-Write-Host '[server-app] Project: $PROJECT_DIR'
-node '$INSTALL_DIR\dist\server-app.js'
+Write-Host '[server-app] Session:  $SESSION_NAME'
+Write-Host '[server-app] Project:  $PROJECT_DIR'
+& '$TSX' '$INSTALL_DIR\src\server-app.ts'
 "@
 
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $serverAppCmd
