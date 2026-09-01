@@ -73,6 +73,12 @@ async function reply(messageId: string, content: string): Promise<void> {
   await post('/reply', { from: SESSION_NAME, messageId, content });
 }
 
+// Send a status update as a regular message to the sender's inbox
+// so it doesn't consume the single reply slot that wait_for_reply listens on.
+async function notify(to: string, content: string): Promise<void> {
+  await post('/send', { from: SESSION_NAME, to, content }).catch(() => {});
+}
+
 // ── Claude CLI invocation ─────────────────────────────────────────────────────
 
 function runClaude(prompt: string): Promise<string> {
@@ -105,16 +111,18 @@ async function handleMessage(msg: Message): Promise<void> {
   const start = Date.now();
   console.error(`[server-app] Message from "${msg.from}": ${msg.content.slice(0, 80)}`);
 
-  await reply(msg.id, 'Accepted — processing your request...');
+  // Notify sender via their inbox (does NOT unblock wait_for_reply)
+  await notify(msg.from, `[claude-server] Accepted — processing your request...`);
 
-  const interval = setInterval(async () => {
+  const interval = setInterval(() => {
     const elapsed = Math.round((Date.now() - start) / 1000);
-    await reply(msg.id, `Still working... (${elapsed}s elapsed)`).catch(() => {});
+    notify(msg.from, `[claude-server] Still working... (${elapsed}s elapsed)`);
   }, STATUS_INTERVAL_MS);
 
   try {
     const result = await runClaude(msg.content);
     clearInterval(interval);
+    // This is the one true reply — unblocks wait_for_reply on the client
     await reply(msg.id, result);
     console.error(`[server-app] Done (${Math.round((Date.now() - start) / 1000)}s)`);
   } catch (err) {

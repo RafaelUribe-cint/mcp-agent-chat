@@ -128,6 +128,16 @@ app.post('/sessions', (req, res) => {
   res.json({ ok: true, name });
 });
 
+app.post('/send', (req, res) => {
+  const { from, to, content } = req.body as { from?: string; to?: string; content?: string };
+  if (!from || !to || !content) {
+    res.status(400).json({ error: 'from, to, and content are required' });
+    return;
+  }
+  const msg = broker.sendMessage(from, to, content);
+  res.json({ ok: true, id: msg.id });
+});
+
 app.post('/reply', (req, res) => {
   const { from, messageId, content } = req.body as {
     from?: string; messageId?: string; content?: string;
