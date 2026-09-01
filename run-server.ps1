@@ -29,7 +29,7 @@ Write-Host "[setup] Installing dependencies..."
 npm --prefix $INSTALL_DIR install
 
 # ── 3. Start server-app via tsx (no build/tsc required) ──────────────────────
-$TSX = "$INSTALL_DIR\node_modules\.bin\tsx"
+$TSX = "$INSTALL_DIR\node_modules\.bin\tsx.cmd"
 
 $serverAppCmd = @"
 `$env:BROKER_URL         = '$BROKER_URL'
