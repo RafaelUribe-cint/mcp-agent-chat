@@ -25,17 +25,13 @@ if (Test-Path "$INSTALL_DIR\.git") {
 }
 
 # ── 2. Install dependencies and tsx globally ──────────────────────────────────
-Write-Host "[setup] Installing tsx globally..."
-npm install -g tsx
-
 Write-Host "[setup] Installing dependencies..."
 Set-Location $INSTALL_DIR
 npm install
 
 # ── 3. Start server-app via tsx (no build/tsc required) ──────────────────────
-$TSX = "tsx"
-
 $serverAppCmd = @"
+Set-Location '$INSTALL_DIR'
 `$env:BROKER_URL         = '$BROKER_URL'
 `$env:API_KEY            = '$API_KEY'
 `$env:SESSION_NAME       = '$SESSION_NAME'
@@ -44,7 +40,7 @@ $serverAppCmd = @"
 Write-Host '[server-app] Connecting to $BROKER_URL'
 Write-Host '[server-app] Session:  $SESSION_NAME'
 Write-Host '[server-app] Project:  $PROJECT_DIR'
-& '$TSX' '$INSTALL_DIR\src\server-app.ts'
+npm run server-app
 "@
 
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $serverAppCmd
