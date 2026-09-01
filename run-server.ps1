@@ -24,12 +24,15 @@ if (Test-Path "$INSTALL_DIR\.git") {
     git clone $REPO_URL $INSTALL_DIR
 }
 
-# ── 2. Install dependencies (dev deps included — tsx runs the app directly) ───
+# ── 2. Install dependencies and tsx globally ──────────────────────────────────
 Write-Host "[setup] Installing dependencies..."
 npm --prefix $INSTALL_DIR install
 
+Write-Host "[setup] Installing tsx globally..."
+npm install -g tsx
+
 # ── 3. Start server-app via tsx (no build/tsc required) ──────────────────────
-$TSX = "$INSTALL_DIR\node_modules\.bin\tsx.cmd"
+$TSX = "tsx"
 
 $serverAppCmd = @"
 `$env:BROKER_URL         = '$BROKER_URL'
