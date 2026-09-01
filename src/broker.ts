@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Response } from 'express';
 import type { Session, Message } from './types.js';
 
 export class MessageBroker {
@@ -13,6 +14,27 @@ export class MessageBroker {
     resolve: (msg: Message) => void;
     reject: (err: Error) => void;
   }>();
+  private sseClients = new Map<string, Response>();
+
+  // ── SSE stream management ─────────────────────────────────────────────────
+
+  addSSEClient(sessionName: string, res: Response): void {
+    this.sseClients.set(sessionName, res);
+    // Flush any queued messages that arrived before the stream connected
+    const q = this.queues.get(sessionName) ?? [];
+    if (q.length > 0) {
+      this.queues.set(sessionName, []);
+      for (const msg of q) this.pushSSE(res, 'message', msg);
+    }
+  }
+
+  removeSSEClient(sessionName: string): void {
+    this.sseClients.delete(sessionName);
+  }
+
+  private pushSSE(res: Response, event: string, data: unknown): void {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  }
 
   registerSession(name: string): void {
     this.sessions.set(name, {
@@ -42,15 +64,20 @@ export class MessageBroker {
       sentAt: Date.now(),
     };
     this.sentMessages.set(msg.id, msg);
-    // If the recipient is blocking on wait_for_message, wake them directly
-    const inboxWaiter = this.inboxWaiters.get(to);
-    if (inboxWaiter) {
-      this.inboxWaiters.delete(to);
-      inboxWaiter.resolve(msg);
+    // Prefer SSE push, then long-poll waiter, then queue
+    const sseClient = this.sseClients.get(to);
+    if (sseClient) {
+      this.pushSSE(sseClient, 'message', msg);
     } else {
-      const q = this.queues.get(to) ?? [];
-      q.push(msg);
-      this.queues.set(to, q);
+      const inboxWaiter = this.inboxWaiters.get(to);
+      if (inboxWaiter) {
+        this.inboxWaiters.delete(to);
+        inboxWaiter.resolve(msg);
+      } else {
+        const q = this.queues.get(to) ?? [];
+        q.push(msg);
+        this.queues.set(to, q);
+      }
     }
     return msg;
   }
@@ -79,8 +106,13 @@ export class MessageBroker {
       return { success: true, queued: false };
     }
 
-    // Otherwise deliver to the original sender's inbox (or wake their waiter)
+    // Otherwise deliver to the original sender's inbox (SSE → long-poll → queue)
     if (original) {
+      const sseClient = this.sseClients.get(original.from);
+      if (sseClient) {
+        this.pushSSE(sseClient, 'reply', reply);
+        return { success: true, queued: false };
+      }
       const inboxWaiter = this.inboxWaiters.get(original.from);
       if (inboxWaiter) {
         this.inboxWaiters.delete(original.from);

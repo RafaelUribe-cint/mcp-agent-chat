@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { createMcpServer } from './server.js';
+import { broker } from './broker.js';
 
 const PORT = parseInt(process.env.PORT ?? '3456', 10);
 const API_KEY = process.env.API_KEY;
@@ -93,6 +94,54 @@ app.post('/messages', async (req, res) => {
   }
 
   await transport.handlePostMessage(req, res, req.body);
+});
+
+// ── SSE inbox stream ──────────────────────────────────────────────────────────
+// The server app connects here once and receives all inbound messages as events.
+app.get('/events/:session', (req, res) => {
+  const { session } = req.params;
+  broker.registerSession(session);
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  broker.addSSEClient(session, res);
+  console.error(`[broker] SSE client connected: ${session}`);
+
+  // Keepalive ping every 25 s to prevent proxy timeouts
+  const keepalive = setInterval(() => res.write(': ping\n\n'), 25_000);
+
+  req.on('close', () => {
+    clearInterval(keepalive);
+    broker.removeSSEClient(session);
+    console.error(`[broker] SSE client disconnected: ${session}`);
+  });
+});
+
+// ── HTTP register / reply — used by the server app without MCP ───────────────
+app.post('/sessions', (req, res) => {
+  const { name } = req.body as { name?: string };
+  if (!name) { res.status(400).json({ error: 'name required' }); return; }
+  broker.registerSession(name);
+  res.json({ ok: true, name });
+});
+
+app.post('/reply', (req, res) => {
+  const { from, messageId, content } = req.body as {
+    from?: string; messageId?: string; content?: string;
+  };
+  if (!from || !messageId || !content) {
+    res.status(400).json({ error: 'from, messageId, and content are required' });
+    return;
+  }
+  const result = broker.replyToMessage(from, messageId, content);
+  if (!result.success) {
+    res.status(404).json({ error: `Message "${messageId}" not found` });
+    return;
+  }
+  res.json({ ok: true, queued: result.queued });
 });
 
 // ── Health check ─────────────────────────────────────────────────────────────
