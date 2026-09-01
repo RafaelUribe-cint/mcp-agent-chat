@@ -33,6 +33,7 @@ const SESSION_NAME = process.env.SESSION_NAME ?? 'claude-server';
 const API_KEY = process.env.API_KEY ?? '';
 const STATUS_INTERVAL_MS = parseInt(process.env.STATUS_INTERVAL_MS ?? '10000', 10);
 const CLAUDE_SYSTEM = process.env.CLAUDE_SYSTEM ?? '';
+const PROJECT_DIR = process.env.PROJECT_DIR ?? process.cwd();
 
 const HEADERS: Record<string, string> = {
   'Content-Type': 'application/json',
@@ -79,7 +80,7 @@ function runClaude(prompt: string): Promise<string> {
     const args = ['--print', prompt];
     if (CLAUDE_SYSTEM) args.unshift('--system', CLAUDE_SYSTEM);
 
-    const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'], cwd: PROJECT_DIR });
     let stdout = '';
     let stderr = '';
 
