@@ -102,6 +102,42 @@ export function createMcpServer(): McpServer {
     }
   });
 
+  server.registerTool('wait_for_message', {
+    description:
+      'Block until a new message arrives in your inbox, then return it immediately. ' +
+      'Use this instead of poll_messages when you want to be notified the moment someone sends you something, ' +
+      'without having to loop and poll manually.',
+    inputSchema: {
+      session_name: z.string().describe('Your session name'),
+      timeout_ms: z
+        .number()
+        .optional()
+        .describe('How long to wait in ms before giving up. Default: 60000'),
+    },
+  }, async ({ session_name, timeout_ms = 60_000 }) => {
+    try {
+      const msg = await broker.waitForMessage(session_name, timeout_ms);
+      return {
+        content: [{
+          type: 'text' as const,
+          text: [
+            `From:    ${msg.from}`,
+            `ID:      ${msg.id}`,
+            msg.replyTo ? `Reply to: ${msg.replyTo}` : null,
+            `Time:    ${new Date(msg.sentAt).toLocaleTimeString()}`,
+            '',
+            msg.content,
+          ].filter(Boolean).join('\n'),
+        }],
+      };
+    } catch {
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: `No message received within ${timeout_ms}ms.` }],
+      };
+    }
+  });
+
   server.registerTool('poll_messages', {
     description:
       'Check your inbox for new messages. Clears the queue after reading. ' +

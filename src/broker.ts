@@ -9,6 +9,10 @@ export class MessageBroker {
     resolve: (msg: Message) => void;
     reject: (err: Error) => void;
   }>();
+  private inboxWaiters = new Map<string, {
+    resolve: (msg: Message) => void;
+    reject: (err: Error) => void;
+  }>();
 
   registerSession(name: string): void {
     this.sessions.set(name, {
@@ -38,9 +42,16 @@ export class MessageBroker {
       sentAt: Date.now(),
     };
     this.sentMessages.set(msg.id, msg);
-    const q = this.queues.get(to) ?? [];
-    q.push(msg);
-    this.queues.set(to, q);
+    // If the recipient is blocking on wait_for_message, wake them directly
+    const inboxWaiter = this.inboxWaiters.get(to);
+    if (inboxWaiter) {
+      this.inboxWaiters.delete(to);
+      inboxWaiter.resolve(msg);
+    } else {
+      const q = this.queues.get(to) ?? [];
+      q.push(msg);
+      this.queues.set(to, q);
+    }
     return msg;
   }
 
@@ -68,8 +79,14 @@ export class MessageBroker {
       return { success: true, queued: false };
     }
 
-    // Otherwise drop the reply into the original sender's inbox
+    // Otherwise deliver to the original sender's inbox (or wake their waiter)
     if (original) {
+      const inboxWaiter = this.inboxWaiters.get(original.from);
+      if (inboxWaiter) {
+        this.inboxWaiters.delete(original.from);
+        inboxWaiter.resolve(reply);
+        return { success: true, queued: false };
+      }
       const q = this.queues.get(original.from) ?? [];
       q.push(reply);
       this.queues.set(original.from, q);
@@ -84,6 +101,27 @@ export class MessageBroker {
     const messages = this.queues.get(sessionName) ?? [];
     this.queues.set(sessionName, []);
     return messages;
+  }
+
+  waitForMessage(sessionName: string, timeoutMs = 60_000): Promise<Message> {
+    this.updateLastSeen(sessionName);
+    // If something is already queued, return it immediately
+    const q = this.queues.get(sessionName) ?? [];
+    if (q.length > 0) {
+      const msg = q.shift()!;
+      this.queues.set(sessionName, q);
+      return Promise.resolve(msg);
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.inboxWaiters.delete(sessionName);
+        reject(new Error(`No message received within ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.inboxWaiters.set(sessionName, {
+        resolve: (msg) => { clearTimeout(timer); resolve(msg); },
+        reject: (err) => { clearTimeout(timer); reject(err); },
+      });
+    });
   }
 
   waitForReply(messageId: string, timeoutMs = 30_000): Promise<Message> {
