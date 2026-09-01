@@ -6,8 +6,26 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { createMcpServer } from './server.js';
 
 const PORT = parseInt(process.env.PORT ?? '3456', 10);
+const API_KEY = process.env.API_KEY;
+
+if (!API_KEY) {
+  console.error('[broker] WARNING: API_KEY is not set — server is open to anyone');
+}
+
 const app = express();
 app.use(express.json());
+
+// Auth middleware — skip /health so Railway's health checks still work
+app.use((req, res, next) => {
+  if (req.path === '/health') return next();
+  if (!API_KEY) return next(); // no key configured → open (dev mode)
+  const auth = req.headers['authorization'];
+  if (auth !== `Bearer ${API_KEY}`) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  next();
+});
 
 type AnyTransport = StreamableHTTPServerTransport | SSEServerTransport;
 const transports = new Map<string, AnyTransport>();
