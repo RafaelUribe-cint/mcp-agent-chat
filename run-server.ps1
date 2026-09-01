@@ -25,11 +25,12 @@ if (Test-Path "$INSTALL_DIR\.git") {
 }
 
 # ── 2. Install dependencies and tsx globally ──────────────────────────────────
-Write-Host "[setup] Installing dependencies..."
-npm --prefix $INSTALL_DIR install
-
 Write-Host "[setup] Installing tsx globally..."
 npm install -g tsx
+
+Write-Host "[setup] Installing dependencies..."
+Set-Location $INSTALL_DIR
+npm install
 
 # ── 3. Start server-app via tsx (no build/tsc required) ──────────────────────
 $TSX = "tsx"
